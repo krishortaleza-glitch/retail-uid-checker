@@ -2,13 +2,71 @@ import streamlit as st
 import pandas as pd
 import tempfile
 
-st.set_page_config(page_title="Retail UID Checker", layout="wide")
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill, Font
+from openpyxl.utils import get_column_letter
+
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+
+st.set_page_config(
+    page_title="Retail UID Difference Checker",
+    layout="wide"
+)
 
 st.title("🔍 Retail UID Difference Checker")
 
-# =========================
-# LOAD FILES
-# =========================
+# =====================================================
+# HELPERS
+# =====================================================
+
+@st.cache_data
+def load_file(file):
+
+    if file.name.endswith(".csv"):
+        df = pd.read_csv(file, dtype=str)
+
+    else:
+        df = pd.read_excel(
+            file,
+            engine="openpyxl",
+            dtype=str
+        )
+
+    df.columns = df.columns.str.strip()
+
+    return df
+
+
+def clean_upc(series):
+
+    return (
+        series.astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.replace(r"\D", "", regex=True)
+        .str.strip()
+    )
+
+
+def find_column(columns, possible_names):
+
+    for possible in possible_names:
+
+        for col in columns:
+
+            if possible.lower() in col.lower():
+                return col
+
+    return columns[0]
+
+
+# =====================================================
+# FILE UPLOADS
+# =====================================================
+
+st.header("Upload Files")
+
 master_file = st.file_uploader(
     "Upload Master Product File",
     type=["xlsx", "csv"]
@@ -19,29 +77,10 @@ bu_file = st.file_uploader(
     type=["xlsx", "csv"]
 )
 
-# =========================
-# HELPERS
-# =========================
-def load_file(file):
-    if file.name.endswith(".csv"):
-        df = pd.read_csv(file, dtype=str)
-    else:
-        df = pd.read_excel(file, dtype=str)
+# =====================================================
+# MAIN PROCESS
+# =====================================================
 
-    df.columns = df.columns.str.strip()
-    return df
-
-def clean_upc(series):
-    return (
-        series.astype(str)
-        .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"\D", "", regex=True)
-        .str.strip()
-    )
-
-# =========================
-# PROCESS
-# =========================
 if master_file and bu_file:
 
     master_df = load_file(master_file)
@@ -49,94 +88,344 @@ if master_file and bu_file:
 
     st.success("Files Loaded")
 
-    st.subheader("Map Columns")
+    # =====================================================
+    # AUTO DETECT COLUMNS
+    # =====================================================
 
-    # MASTER
+    master_upc_default = find_column(
+        master_df.columns,
+        ["upc", "productupc"]
+    )
+
+    master_uid_default = find_column(
+        master_df.columns,
+        ["item no", "productid", "retail uid"]
+    )
+
+    bu_product_upc_default = find_column(
+        bu_df.columns,
+        ["productupc", "product upc"]
+    )
+
+    bu_unit_upc_default = find_column(
+        bu_df.columns,
+        ["unitupc", "unit upc"]
+    )
+
+    bu_uid_default = find_column(
+        bu_df.columns,
+        ["productid", "item no", "retail uid"]
+    )
+
+    # =====================================================
+    # COLUMN MAPPING UI
+    # =====================================================
+
+    st.header("Map Columns")
+
     master_upc_col = st.selectbox(
         "Master UPC Column",
         master_df.columns,
-        key="master_upc"
+        index=list(master_df.columns).index(
+            master_upc_default
+        )
     )
 
     master_uid_col = st.selectbox(
         "Master Retail UID Column",
         master_df.columns,
-        key="master_uid"
+        index=list(master_df.columns).index(
+            master_uid_default
+        )
     )
 
-    # BU
-    bu_upc_col = st.selectbox(
-        "BU UPC Column",
+    bu_product_upc_col = st.selectbox(
+        "BU ProductUPC Column",
         bu_df.columns,
-        key="bu_upc"
+        index=list(bu_df.columns).index(
+            bu_product_upc_default
+        )
+    )
+
+    bu_unit_upc_col = st.selectbox(
+        "BU UnitUPC Column",
+        bu_df.columns,
+        index=list(bu_df.columns).index(
+            bu_unit_upc_default
+        )
     )
 
     bu_uid_col = st.selectbox(
         "BU Retail UID Column",
         bu_df.columns,
-        key="bu_uid"
+        index=list(bu_df.columns).index(
+            bu_uid_default
+        )
     )
+
+    # =====================================================
+    # PROCESS BUTTON
+    # =====================================================
 
     if st.button("🚀 Compare Files"):
 
-        # CLEAN UPCS
-        master_df["UPC_CLEAN"] = clean_upc(master_df[master_upc_col])
-        bu_df["UPC_CLEAN"] = clean_upc(bu_df[bu_upc_col])
+        progress = st.progress(0)
+        status = st.empty()
 
-        # BUILD MASTER LOOKUP
-        master_lookup = (
-            master_df[
-                ["UPC_CLEAN", master_uid_col]
-            ]
-            .drop_duplicates()
-            .rename(columns={
-                master_uid_col: "MASTER_UID"
-            })
-        )
+        with st.spinner("Processing files..."):
 
-        # MERGE
-        merged = bu_df.merge(
-            master_lookup,
-            on="UPC_CLEAN",
-            how="left"
-        )
+            # =====================================================
+            # CLEAN UPCS
+            # =====================================================
 
-        # FLAG DIFFERENCES
-        flagged = merged[
-            (merged["MASTER_UID"].notna()) &
-            (
-                merged[bu_uid_col].astype(str).str.strip()
-                !=
-                merged["MASTER_UID"].astype(str).str.strip()
+            status.text("Cleaning UPC columns...")
+            progress.progress(10)
+
+            master_df["MASTER_UPC_CLEAN"] = clean_upc(
+                master_df[master_upc_col]
             )
-        ].copy()
 
-        flagged["BU_UID"] = flagged[bu_uid_col]
+            bu_df["PRODUCT_UPC_CLEAN"] = clean_upc(
+                bu_df[bu_product_upc_col]
+            )
 
-        # OUTPUT
-        output_cols = [
-            bu_upc_col,
-            "BU_UID",
-            "MASTER_UID"
-        ]
+            bu_df["UNIT_UPC_CLEAN"] = clean_upc(
+                bu_df[bu_unit_upc_col]
+            )
 
-        remaining_cols = [
-            c for c in flagged.columns
-            if c not in output_cols
-            and c != "UPC_CLEAN"
-        ]
+            # =====================================================
+            # FIND DUPLICATE UPCS IN MASTER
+            # =====================================================
 
-        flagged = flagged[
-            output_cols + remaining_cols
-        ]
+            status.text("Checking duplicate UPCs...")
+            progress.progress(25)
 
-        st.success(
-            f"Found {len(flagged)} Retail UID mismatches"
+            duplicate_master = master_df[
+                master_df.duplicated(
+                    subset=["MASTER_UPC_CLEAN"],
+                    keep=False
+                )
+            ].copy()
+
+            # =====================================================
+            # BUILD MASTER LOOKUP
+            # =====================================================
+
+            status.text("Building UPC lookup...")
+            progress.progress(40)
+
+            valid_master = master_df[
+                ~master_df["MASTER_UPC_CLEAN"].isin(
+                    duplicate_master["MASTER_UPC_CLEAN"]
+                )
+            ]
+
+            master_lookup = (
+                valid_master[
+                    [
+                        "MASTER_UPC_CLEAN",
+                        master_uid_col
+                    ]
+                ]
+                .dropna(subset=["MASTER_UPC_CLEAN"])
+                .drop_duplicates(subset=["MASTER_UPC_CLEAN"])
+                .rename(columns={
+                    master_uid_col: "MASTER_UID"
+                })
+            )
+
+            master_lookup_dict = dict(
+                zip(
+                    master_lookup["MASTER_UPC_CLEAN"],
+                    master_lookup["MASTER_UID"]
+                )
+            )
+
+            # =====================================================
+            # MATCH LOGIC
+            # =====================================================
+
+            status.text("Matching UPCs...")
+            progress.progress(60)
+
+            def lookup_master_uid(row):
+
+                product_upc = row["PRODUCT_UPC_CLEAN"]
+                unit_upc = row["UNIT_UPC_CLEAN"]
+
+                # TRY PRODUCT UPC FIRST
+                if product_upc in master_lookup_dict:
+
+                    return (
+                        master_lookup_dict[product_upc],
+                        "ProductUPC"
+                    )
+
+                # FALLBACK TO UNIT UPC
+                if unit_upc in master_lookup_dict:
+
+                    return (
+                        master_lookup_dict[unit_upc],
+                        "UnitUPC"
+                    )
+
+                return (None, "No Match")
+
+            lookup_results = bu_df.apply(
+                lookup_master_uid,
+                axis=1
+            )
+
+            bu_df["MASTER_UID"] = lookup_results.apply(
+                lambda x: x[0]
+            )
+
+            bu_df["MATCH_SOURCE"] = lookup_results.apply(
+                lambda x: x[1]
+            )
+
+            # =====================================================
+            # FLAG MISMATCHES
+            # =====================================================
+
+            status.text("Finding UID mismatches...")
+            progress.progress(75)
+
+            flagged = bu_df[
+                (
+                    bu_df["MASTER_UID"].notna()
+                )
+                &
+                (
+                    bu_df[bu_uid_col]
+                    .astype(str)
+                    .str.strip()
+                    !=
+                    bu_df["MASTER_UID"]
+                    .astype(str)
+                    .str.strip()
+                )
+            ].copy()
+
+            flagged["BU_UID"] = flagged[bu_uid_col]
+
+            # =====================================================
+            # NO MATCH OUTPUT
+            # =====================================================
+
+            no_match_df = bu_df[
+                bu_df["MATCH_SOURCE"] == "No Match"
+            ].copy()
+
+            # =====================================================
+            # SUMMARY METRICS
+            # =====================================================
+
+            total_rows = len(bu_df)
+
+            mismatch_count = len(flagged)
+
+            matched_product_upc = len(
+                bu_df[
+                    bu_df["MATCH_SOURCE"] == "ProductUPC"
+                ]
+            )
+
+            matched_unit_upc = len(
+                bu_df[
+                    bu_df["MATCH_SOURCE"] == "UnitUPC"
+                ]
+            )
+
+            no_match_count = len(no_match_df)
+
+            duplicate_count = len(
+                duplicate_master
+            )
+
+            progress.progress(90)
+
+            # =====================================================
+            # DISPLAY METRICS
+            # =====================================================
+
+            st.header("Summary")
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Total Rows",
+                total_rows
+            )
+
+            col1.metric(
+                "UID Mismatches",
+                mismatch_count
+            )
+
+            col2.metric(
+                "Matched by ProductUPC",
+                matched_product_upc
+            )
+
+            col2.metric(
+                "Matched by UnitUPC",
+                matched_unit_upc
+            )
+
+            col3.metric(
+                "No Match",
+                no_match_count
+            )
+
+            col3.metric(
+                "Duplicate Master UPCs",
+                duplicate_count
+            )
+
+            # =====================================================
+            # OUTPUT COLUMNS
+            # =====================================================
+
+            output_columns = [
+                bu_product_upc_col,
+                bu_unit_upc_col,
+                "BU_UID",
+                "MASTER_UID",
+                "MATCH_SOURCE"
+            ]
+
+            remaining_cols = [
+                c for c in flagged.columns
+                if c not in output_columns
+                and c not in [
+                    "PRODUCT_UPC_CLEAN",
+                    "UNIT_UPC_CLEAN"
+                ]
+            ]
+
+            flagged = flagged[
+                output_columns + remaining_cols
+            ]
+
+            progress.progress(100)
+            status.text("Done!")
+
+        # =====================================================
+        # DISPLAY RESULTS
+        # =====================================================
+
+        st.header("Retail UID Mismatches")
+
+        st.dataframe(
+            flagged,
+            use_container_width=True
         )
 
-        st.dataframe(flagged)
+        # =====================================================
+        # EXPORT EXCEL
+        # =====================================================
 
-        # EXPORT
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".xlsx"
@@ -144,18 +433,117 @@ if master_file and bu_file:
 
             temp_path = tmp.name
 
-        with pd.ExcelWriter(temp_path, engine="openpyxl") as writer:
+        with pd.ExcelWriter(
+            temp_path,
+            engine="openpyxl"
+        ) as writer:
+
             flagged.to_excel(
                 writer,
                 sheet_name="UID Mismatches",
                 index=False
             )
 
+            no_match_df.to_excel(
+                writer,
+                sheet_name="No Match",
+                index=False
+            )
+
+            duplicate_master.to_excel(
+                writer,
+                sheet_name="Duplicate Master UPCs",
+                index=False
+            )
+
+        # =====================================================
+        # FORMAT EXCEL
+        # =====================================================
+
+        wb = load_workbook(temp_path)
+
+        red_fill = PatternFill(
+            start_color="FFC7CE",
+            end_color="FFC7CE",
+            fill_type="solid"
+        )
+
+        yellow_fill = PatternFill(
+            start_color="FFF3CD",
+            end_color="FFF3CD",
+            fill_type="solid"
+        )
+
+        bold_font = Font(bold=True)
+
+        for sheet_name in wb.sheetnames:
+
+            ws = wb[sheet_name]
+
+            # HEADER STYLE
+            for cell in ws[1]:
+                cell.font = bold_font
+
+            # FREEZE HEADER
+            ws.freeze_panes = "A2"
+
+            # FILTERS
+            ws.auto_filter.ref = ws.dimensions
+
+            # AUTO WIDTH
+            for col in ws.columns:
+
+                max_length = 0
+                column = col[0].column
+
+                for cell in col:
+
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+
+                adjusted_width = min(
+                    max_length + 2,
+                    40
+                )
+
+                ws.column_dimensions[
+                    get_column_letter(column)
+                ].width = adjusted_width
+
+            # COLOR ROWS
+            if sheet_name == "UID Mismatches":
+
+                for row in ws.iter_rows(min_row=2):
+
+                    for cell in row:
+                        cell.fill = red_fill
+
+            if sheet_name == "No Match":
+
+                for row in ws.iter_rows(min_row=2):
+
+                    for cell in row:
+                        cell.fill = yellow_fill
+
+        wb.save(temp_path)
+
+        # =====================================================
+        # DOWNLOAD
+        # =====================================================
+
         with open(temp_path, "rb") as f:
             file_bytes = f.read()
 
         st.download_button(
-            "⬇ Download Flagged Items",
+            label="⬇ Download Results",
             data=file_bytes,
-            file_name="retail_uid_mismatches.xlsx"
+            file_name="retail_uid_results.xlsx",
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            )
         )
