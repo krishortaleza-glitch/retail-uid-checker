@@ -3,7 +3,7 @@ import pandas as pd
 import tempfile
 
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
 # =====================================================
@@ -179,7 +179,7 @@ if master_file and bu_file:
             # =====================================================
 
             status.text("Cleaning UPC columns...")
-            progress.progress(10)
+            progress.progress(15)
 
             master_df["MASTER_UPC_CLEAN"] = clean_upc(
                 master_df[master_upc_col]
@@ -194,34 +194,14 @@ if master_file and bu_file:
             )
 
             # =====================================================
-            # FIND DUPLICATE UPCS IN MASTER
-            # =====================================================
-
-            status.text("Checking duplicate UPCs...")
-            progress.progress(25)
-
-            duplicate_master = master_df[
-                master_df.duplicated(
-                    subset=["MASTER_UPC_CLEAN"],
-                    keep=False
-                )
-            ].copy()
-
-            # =====================================================
             # BUILD MASTER LOOKUP
             # =====================================================
 
             status.text("Building UPC lookup...")
-            progress.progress(40)
-
-            valid_master = master_df[
-                ~master_df["MASTER_UPC_CLEAN"].isin(
-                    duplicate_master["MASTER_UPC_CLEAN"]
-                )
-            ]
+            progress.progress(35)
 
             master_lookup = (
-                valid_master[
+                master_df[
                     [
                         "MASTER_UPC_CLEAN",
                         master_uid_col
@@ -289,7 +269,7 @@ if master_file and bu_file:
             # =====================================================
 
             status.text("Finding UID mismatches...")
-            progress.progress(75)
+            progress.progress(80)
 
             flagged = bu_df[
                 (
@@ -310,15 +290,7 @@ if master_file and bu_file:
             flagged["BU_UID"] = flagged[bu_uid_col]
 
             # =====================================================
-            # NO MATCH OUTPUT
-            # =====================================================
-
-            no_match_df = bu_df[
-                bu_df["MATCH_SOURCE"] == "No Match"
-            ].copy()
-
-            # =====================================================
-            # SUMMARY METRICS
+            # SUMMARY
             # =====================================================
 
             total_rows = len(bu_df)
@@ -337,51 +309,28 @@ if master_file and bu_file:
                 ]
             )
 
-            no_match_count = len(no_match_df)
-
-            duplicate_count = len(
-                duplicate_master
+            no_match_count = len(
+                bu_df[
+                    bu_df["MATCH_SOURCE"] == "No Match"
+                ]
             )
 
-            progress.progress(90)
-
-            # =====================================================
-            # DISPLAY METRICS
-            # =====================================================
-
-            st.header("Summary")
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric(
-                "Total Rows",
-                total_rows
-            )
-
-            col1.metric(
-                "UID Mismatches",
-                mismatch_count
-            )
-
-            col2.metric(
-                "Matched by ProductUPC",
-                matched_product_upc
-            )
-
-            col2.metric(
-                "Matched by UnitUPC",
-                matched_unit_upc
-            )
-
-            col3.metric(
-                "No Match",
-                no_match_count
-            )
-
-            col3.metric(
-                "Duplicate Master UPCs",
-                duplicate_count
-            )
+            summary_df = pd.DataFrame({
+                "Metric": [
+                    "Total Rows",
+                    "UID Mismatches",
+                    "Matched by ProductUPC",
+                    "Matched by UnitUPC",
+                    "No Match"
+                ],
+                "Value": [
+                    total_rows,
+                    mismatch_count,
+                    matched_product_upc,
+                    matched_unit_upc,
+                    no_match_count
+                ]
+            })
 
             # =====================================================
             # OUTPUT COLUMNS
@@ -415,7 +364,9 @@ if master_file and bu_file:
         # DISPLAY RESULTS
         # =====================================================
 
-        st.header("Retail UID Mismatches")
+        st.success(
+            f"Found {len(flagged)} Retail UID mismatches"
+        )
 
         st.dataframe(
             flagged,
@@ -438,21 +389,15 @@ if master_file and bu_file:
             engine="openpyxl"
         ) as writer:
 
+            summary_df.to_excel(
+                writer,
+                sheet_name="Summary",
+                index=False
+            )
+
             flagged.to_excel(
                 writer,
                 sheet_name="UID Mismatches",
-                index=False
-            )
-
-            no_match_df.to_excel(
-                writer,
-                sheet_name="No Match",
-                index=False
-            )
-
-            duplicate_master.to_excel(
-                writer,
-                sheet_name="Duplicate Master UPCs",
                 index=False
             )
 
@@ -461,18 +406,6 @@ if master_file and bu_file:
         # =====================================================
 
         wb = load_workbook(temp_path)
-
-        red_fill = PatternFill(
-            start_color="FFC7CE",
-            end_color="FFC7CE",
-            fill_type="solid"
-        )
-
-        yellow_fill = PatternFill(
-            start_color="FFF3CD",
-            end_color="FFF3CD",
-            fill_type="solid"
-        )
 
         bold_font = Font(bold=True)
 
@@ -512,21 +445,6 @@ if master_file and bu_file:
                 ws.column_dimensions[
                     get_column_letter(column)
                 ].width = adjusted_width
-
-            # COLOR ROWS
-            if sheet_name == "UID Mismatches":
-
-                for row in ws.iter_rows(min_row=2):
-
-                    for cell in row:
-                        cell.fill = red_fill
-
-            if sheet_name == "No Match":
-
-                for row in ws.iter_rows(min_row=2):
-
-                    for cell in row:
-                        cell.fill = yellow_fill
 
         wb.save(temp_path)
 
