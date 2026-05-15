@@ -270,20 +270,6 @@ if master_file and bu_file:
     )
 
     # =====================================================
-    # SHOW DETECTED BU COLUMNS
-    # =====================================================
-
-    st.info(
-        f"""
-        BU Columns Detected Automatically:
-
-        • ProductUPC → {bu_product_upc_col}
-        • UnitUPC → {bu_unit_upc_col}
-        • ProductID → {bu_uid_col}
-        """
-    )
-
-    # =====================================================
     # PROCESS BUTTON
     # =====================================================
 
