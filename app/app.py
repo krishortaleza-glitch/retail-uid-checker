@@ -18,12 +18,30 @@ st.set_page_config(
 st.title("🔍 Retail UID Difference Checker")
 
 # =====================================================
-# STATIC BU COLUMN NAMES
+# SMART BU COLUMN OPTIONS
 # =====================================================
 
-BU_PRODUCT_UPC_COLUMN = "ProductUPC"
-BU_UNIT_UPC_COLUMN = "UnitUPC"
-BU_UID_COLUMN = "ProductId"
+BU_PRODUCT_UPC_OPTIONS = [
+    "ProductUPC",
+    "Product UPC",
+    "PRODUCTUPC",
+    "PRODUCT_UPC"
+]
+
+BU_UNIT_UPC_OPTIONS = [
+    "UnitUPC",
+    "Unit UPC",
+    "UNITUPC",
+    "UNIT_UPC"
+]
+
+BU_UID_OPTIONS = [
+    "ProductID",
+    "Product ID",
+    "Retail UID",
+    "Item No",
+    "ITEMNO"
+]
 
 # =====================================================
 # HELPERS
@@ -33,9 +51,14 @@ BU_UID_COLUMN = "ProductId"
 def load_file(file):
 
     if file.name.endswith(".csv"):
-        df = pd.read_csv(file, dtype=str)
+
+        df = pd.read_csv(
+            file,
+            dtype=str
+        )
 
     else:
+
         df = pd.read_excel(
             file,
             engine="openpyxl",
@@ -59,14 +82,47 @@ def clean_upc(series):
 
 def find_column(columns, possible_names):
 
+    normalized_columns = {
+        col.lower().replace(" ", "").replace("_", ""): col
+        for col in columns
+    }
+
     for possible in possible_names:
+
+        normalized_possible = (
+            possible.lower()
+            .replace(" ", "")
+            .replace("_", "")
+        )
+
+        if normalized_possible in normalized_columns:
+
+            return normalized_columns[
+                normalized_possible
+            ]
+
+    # PARTIAL MATCH FALLBACK
+    for possible in possible_names:
+
+        normalized_possible = (
+            possible.lower()
+            .replace(" ", "")
+            .replace("_", "")
+        )
 
         for col in columns:
 
-            if possible.lower() in col.lower():
+            normalized_col = (
+                col.lower()
+                .replace(" ", "")
+                .replace("_", "")
+            )
+
+            if normalized_possible in normalized_col:
+
                 return col
 
-    return columns[0]
+    return None
 
 
 # =====================================================
@@ -97,40 +153,25 @@ if master_file and bu_file:
     st.success("Files Loaded")
 
     # =====================================================
-    # VALIDATE STATIC BU COLUMNS
-    # =====================================================
-
-    required_bu_columns = [
-        BU_PRODUCT_UPC_COLUMN,
-        BU_UNIT_UPC_COLUMN,
-        BU_UID_COLUMN
-    ]
-
-    missing_columns = [
-        col for col in required_bu_columns
-        if col not in bu_df.columns
-    ]
-
-    if missing_columns:
-
-        st.error(
-            f"Missing required BU columns: {', '.join(missing_columns)}"
-        )
-
-        st.stop()
-
-    # =====================================================
     # AUTO DETECT MASTER COLUMNS
     # =====================================================
 
     master_upc_default = find_column(
         master_df.columns,
-        ["upc", "productupc"]
+        [
+            "upc",
+            "productupc",
+            "product upc"
+        ]
     )
 
     master_uid_default = find_column(
         master_df.columns,
-        ["item no", "productid", "retail uid"]
+        [
+            "item no",
+            "productid",
+            "retail uid"
+        ]
     )
 
     master_name_default = find_column(
@@ -144,6 +185,49 @@ if master_file and bu_file:
     )
 
     # =====================================================
+    # SMART DETECT BU COLUMNS
+    # =====================================================
+
+    bu_product_upc_col = find_column(
+        bu_df.columns,
+        BU_PRODUCT_UPC_OPTIONS
+    )
+
+    bu_unit_upc_col = find_column(
+        bu_df.columns,
+        BU_UNIT_UPC_OPTIONS
+    )
+
+    bu_uid_col = find_column(
+        bu_df.columns,
+        BU_UID_OPTIONS
+    )
+
+    # =====================================================
+    # VALIDATE BU COLUMNS
+    # =====================================================
+
+    missing_columns = []
+
+    if not bu_product_upc_col:
+        missing_columns.append("ProductUPC")
+
+    if not bu_unit_upc_col:
+        missing_columns.append("UnitUPC")
+
+    if not bu_uid_col:
+        missing_columns.append("ProductID")
+
+    if missing_columns:
+
+        st.error(
+            "Missing required BU columns: "
+            + ", ".join(missing_columns)
+        )
+
+        st.stop()
+
+    # =====================================================
     # MASTER COLUMN MAPPING UI
     # =====================================================
 
@@ -152,31 +236,52 @@ if master_file and bu_file:
     master_upc_col = st.selectbox(
         "Master UPC Column",
         master_df.columns,
-        index=list(master_df.columns).index(
-            master_upc_default
+        index=(
+            list(master_df.columns).index(
+                master_upc_default
+            )
+            if master_upc_default
+            else 0
         )
     )
 
     master_uid_col = st.selectbox(
         "Master Retail UID Column",
         master_df.columns,
-        index=list(master_df.columns).index(
-            master_uid_default
+        index=(
+            list(master_df.columns).index(
+                master_uid_default
+            )
+            if master_uid_default
+            else 0
         )
     )
 
     master_name_col = st.selectbox(
         "Master Product Name Column",
         master_df.columns,
-        index=list(master_df.columns).index(
-            master_name_default
+        index=(
+            list(master_df.columns).index(
+                master_name_default
+            )
+            if master_name_default
+            else 0
         )
     )
 
-    # STATIC BU COLUMNS
-    bu_product_upc_col = BU_PRODUCT_UPC_COLUMN
-    bu_unit_upc_col = BU_UNIT_UPC_COLUMN
-    bu_uid_col = BU_UID_COLUMN
+    # =====================================================
+    # SHOW DETECTED BU COLUMNS
+    # =====================================================
+
+    st.info(
+        f"""
+        BU Columns Detected Automatically:
+
+        • ProductUPC → {bu_product_upc_col}
+        • UnitUPC → {bu_unit_upc_col}
+        • ProductID → {bu_uid_col}
+        """
+    )
 
     # =====================================================
     # PROCESS BUTTON
@@ -224,19 +329,28 @@ if master_file and bu_file:
                     ]
                 ]
                 .dropna(subset=["MASTER_UPC_CLEAN"])
-                .drop_duplicates(subset=["MASTER_UPC_CLEAN"])
+                .drop_duplicates(
+                    subset=["MASTER_UPC_CLEAN"]
+                )
                 .rename(columns={
                     master_uid_col: "MASTER_UID",
-                    master_name_col: "MASTER_PRODUCT_NAME"
+                    master_name_col:
+                        "MASTER_PRODUCT_NAME"
                 })
             )
 
             master_lookup_dict = dict(
                 zip(
-                    master_lookup["MASTER_UPC_CLEAN"],
+                    master_lookup[
+                        "MASTER_UPC_CLEAN"
+                    ],
                     zip(
-                        master_lookup["MASTER_UID"],
-                        master_lookup["MASTER_PRODUCT_NAME"]
+                        master_lookup[
+                            "MASTER_UID"
+                        ],
+                        master_lookup[
+                            "MASTER_PRODUCT_NAME"
+                        ]
                     )
                 )
             )
@@ -250,14 +364,21 @@ if master_file and bu_file:
 
             def lookup_master_uid(row):
 
-                product_upc = row["PRODUCT_UPC_CLEAN"]
-                unit_upc = row["UNIT_UPC_CLEAN"]
+                product_upc = row[
+                    "PRODUCT_UPC_CLEAN"
+                ]
+
+                unit_upc = row[
+                    "UNIT_UPC_CLEAN"
+                ]
 
                 # TRY PRODUCT UPC FIRST
                 if product_upc in master_lookup_dict:
 
                     master_uid, product_name = (
-                        master_lookup_dict[product_upc]
+                        master_lookup_dict[
+                            product_upc
+                        ]
                     )
 
                     return (
@@ -270,7 +391,9 @@ if master_file and bu_file:
                 if unit_upc in master_lookup_dict:
 
                     master_uid, product_name = (
-                        master_lookup_dict[unit_upc]
+                        master_lookup_dict[
+                            unit_upc
+                        ]
                     )
 
                     return (
@@ -279,35 +402,49 @@ if master_file and bu_file:
                         "UnitUPC"
                     )
 
-                return (None, None, "No Match")
+                return (
+                    None,
+                    None,
+                    "No Match"
+                )
 
             lookup_results = bu_df.apply(
                 lookup_master_uid,
                 axis=1
             )
 
-            bu_df["MASTER_UID"] = lookup_results.apply(
-                lambda x: x[0]
+            bu_df["MASTER_UID"] = (
+                lookup_results.apply(
+                    lambda x: x[0]
+                )
             )
 
-            bu_df["MASTER_PRODUCT_NAME"] = lookup_results.apply(
-                lambda x: x[1]
+            bu_df["MASTER_PRODUCT_NAME"] = (
+                lookup_results.apply(
+                    lambda x: x[1]
+                )
             )
 
-            bu_df["MATCH_SOURCE"] = lookup_results.apply(
-                lambda x: x[2]
+            bu_df["MATCH_SOURCE"] = (
+                lookup_results.apply(
+                    lambda x: x[2]
+                )
             )
 
             # =====================================================
             # FLAG MISMATCHES
             # =====================================================
 
-            status.text("Finding UID mismatches...")
+            status.text(
+                "Finding UID mismatches..."
+            )
+
             progress.progress(80)
 
             flagged = bu_df[
                 (
-                    bu_df["MASTER_UID"].notna()
+                    bu_df["MASTER_UID"]
+                    .notna()
                 )
                 &
                 (
@@ -321,7 +458,9 @@ if master_file and bu_file:
                 )
             ].copy()
 
-            flagged["BU_UID"] = flagged[bu_uid_col]
+            flagged["BU_UID"] = flagged[
+                bu_uid_col
+            ]
 
             # =====================================================
             # SUMMARY
@@ -333,19 +472,22 @@ if master_file and bu_file:
 
             matched_product_upc = len(
                 bu_df[
-                    bu_df["MATCH_SOURCE"] == "ProductUPC"
+                    bu_df["MATCH_SOURCE"]
+                    == "ProductUPC"
                 ]
             )
 
             matched_unit_upc = len(
                 bu_df[
-                    bu_df["MATCH_SOURCE"] == "UnitUPC"
+                    bu_df["MATCH_SOURCE"]
+                    == "UnitUPC"
                 ]
             )
 
             no_match_count = len(
                 bu_df[
-                    bu_df["MATCH_SOURCE"] == "No Match"
+                    bu_df["MATCH_SOURCE"]
+                    == "No Match"
                 ]
             )
 
@@ -393,6 +535,7 @@ if master_file and bu_file:
             ]
 
             progress.progress(100)
+
             status.text("Done!")
 
         # =====================================================
@@ -400,7 +543,10 @@ if master_file and bu_file:
         # =====================================================
 
         st.success(
-            f"Found {len(flagged)} Retail UID mismatches"
+            f"""
+            Found {len(flagged)}
+            Retail UID mismatches
+            """
         )
 
         st.dataframe(
@@ -450,6 +596,7 @@ if master_file and bu_file:
 
             # HEADER STYLE
             for cell in ws[1]:
+
                 cell.font = bold_font
 
             # FREEZE HEADER
@@ -462,13 +609,22 @@ if master_file and bu_file:
             for col in ws.columns:
 
                 max_length = 0
+
                 column = col[0].column
 
                 for cell in col:
 
                     try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
+
+                        if (
+                            len(str(cell.value))
+                            > max_length
+                        ):
+
+                            max_length = len(
+                                str(cell.value)
+                            )
+
                     except:
                         pass
 
@@ -488,12 +644,15 @@ if master_file and bu_file:
         # =====================================================
 
         with open(temp_path, "rb") as f:
+
             file_bytes = f.read()
 
         st.download_button(
             label="⬇ Download Results",
             data=file_bytes,
-            file_name="retail_uid_results.xlsx",
+            file_name=(
+                "retail_uid_results.xlsx"
+            ),
             mime=(
                 "application/"
                 "vnd.openxmlformats-officedocument."
