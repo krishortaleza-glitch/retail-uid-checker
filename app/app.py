@@ -72,12 +72,21 @@ def load_file(file):
 
 def clean_upc(series):
 
-    return (
+    cleaned = (
         series.astype(str)
         .str.replace(r"\.0$", "", regex=True)
         .str.replace(r"\D", "", regex=True)
         .str.strip()
     )
+
+    # ONLY pad if UPC is exactly 11 digits
+    cleaned = cleaned.apply(
+        lambda x: x.zfill(12)
+        if len(x) == 11
+        else x
+    )
+
+    return cleaned
 
 
 def find_column(columns, possible_names):
@@ -300,6 +309,22 @@ if master_file and bu_file:
             )
 
             # =====================================================
+            # OPTIONAL UPC VALIDATION
+            # =====================================================
+
+            bu_df["INVALID_PRODUCT_UPC"] = (
+                bu_df["PRODUCT_UPC_CLEAN"]
+                .str.len()
+                .ne(12)
+            )
+
+            bu_df["INVALID_UNIT_UPC"] = (
+                bu_df["UNIT_UPC_CLEAN"]
+                .str.len()
+                .ne(12)
+            )
+
+            # =====================================================
             # BUILD MASTER LOOKUP
             # =====================================================
 
@@ -314,12 +339,15 @@ if master_file and bu_file:
                         master_name_col
                     ]
                 ]
-                .dropna(subset=["MASTER_UPC_CLEAN"])
+                .dropna(subset=[
+                    "MASTER_UPC_CLEAN"
+                ])
                 .drop_duplicates(
                     subset=["MASTER_UPC_CLEAN"]
                 )
                 .rename(columns={
-                    master_uid_col: "MASTER_UID",
+                    master_uid_col:
+                        "MASTER_UID",
                     master_name_col:
                         "MASTER_PRODUCT_NAME"
                 })
@@ -477,20 +505,40 @@ if master_file and bu_file:
                 ]
             )
 
+            invalid_product_upc_count = len(
+                bu_df[
+                    bu_df[
+                        "INVALID_PRODUCT_UPC"
+                    ]
+                ]
+            )
+
+            invalid_unit_upc_count = len(
+                bu_df[
+                    bu_df[
+                        "INVALID_UNIT_UPC"
+                    ]
+                ]
+            )
+
             summary_df = pd.DataFrame({
                 "Metric": [
                     "Total Rows",
                     "UID Mismatches",
                     "Matched by ProductUPC",
                     "Matched by UnitUPC",
-                    "No Match"
+                    "No Match",
+                    "Invalid ProductUPC Length",
+                    "Invalid UnitUPC Length"
                 ],
                 "Value": [
                     total_rows,
                     mismatch_count,
                     matched_product_upc,
                     matched_unit_upc,
-                    no_match_count
+                    no_match_count,
+                    invalid_product_upc_count,
+                    invalid_unit_upc_count
                 ]
             })
 
@@ -504,7 +552,9 @@ if master_file and bu_file:
                 "BU_UID",
                 "MASTER_UID",
                 "MASTER_PRODUCT_NAME",
-                "MATCH_SOURCE"
+                "MATCH_SOURCE",
+                "INVALID_PRODUCT_UPC",
+                "INVALID_UNIT_UPC"
             ]
 
             remaining_cols = [
