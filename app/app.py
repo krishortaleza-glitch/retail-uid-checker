@@ -73,7 +73,8 @@ def load_file(file):
 def clean_upc(series):
 
     cleaned = (
-        series.astype(str)
+        series.fillna("")
+        .astype(str)
         .str.replace(r"\.0$", "", regex=True)
         .str.replace(r"\D", "", regex=True)
         .str.strip()
@@ -82,7 +83,7 @@ def clean_upc(series):
     # ONLY pad if UPC is exactly 11 digits
     cleaned = cleaned.apply(
         lambda x: x.zfill(12)
-        if len(x) == 11
+        if isinstance(x, str) and len(x) == 11
         else x
     )
 
