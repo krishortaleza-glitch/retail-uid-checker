@@ -102,6 +102,16 @@ if master_file and bu_file:
         ["item no", "productid", "retail uid"]
     )
 
+    master_name_default = find_column(
+        master_df.columns,
+        [
+            "product name",
+            "description",
+            "item description",
+            "productdescription"
+        ]
+    )
+
     bu_product_upc_default = find_column(
         bu_df.columns,
         ["productupc", "product upc"]
@@ -136,6 +146,14 @@ if master_file and bu_file:
         master_df.columns,
         index=list(master_df.columns).index(
             master_uid_default
+        )
+    )
+
+    master_name_col = st.selectbox(
+        "Master Product Name Column",
+        master_df.columns,
+        index=list(master_df.columns).index(
+            master_name_default
         )
     )
 
@@ -204,20 +222,25 @@ if master_file and bu_file:
                 master_df[
                     [
                         "MASTER_UPC_CLEAN",
-                        master_uid_col
+                        master_uid_col,
+                        master_name_col
                     ]
                 ]
                 .dropna(subset=["MASTER_UPC_CLEAN"])
                 .drop_duplicates(subset=["MASTER_UPC_CLEAN"])
                 .rename(columns={
-                    master_uid_col: "MASTER_UID"
+                    master_uid_col: "MASTER_UID",
+                    master_name_col: "MASTER_PRODUCT_NAME"
                 })
             )
 
             master_lookup_dict = dict(
                 zip(
                     master_lookup["MASTER_UPC_CLEAN"],
-                    master_lookup["MASTER_UID"]
+                    zip(
+                        master_lookup["MASTER_UID"],
+                        master_lookup["MASTER_PRODUCT_NAME"]
+                    )
                 )
             )
 
@@ -236,20 +259,30 @@ if master_file and bu_file:
                 # TRY PRODUCT UPC FIRST
                 if product_upc in master_lookup_dict:
 
+                    master_uid, product_name = (
+                        master_lookup_dict[product_upc]
+                    )
+
                     return (
-                        master_lookup_dict[product_upc],
+                        master_uid,
+                        product_name,
                         "ProductUPC"
                     )
 
                 # FALLBACK TO UNIT UPC
                 if unit_upc in master_lookup_dict:
 
+                    master_uid, product_name = (
+                        master_lookup_dict[unit_upc]
+                    )
+
                     return (
-                        master_lookup_dict[unit_upc],
+                        master_uid,
+                        product_name,
                         "UnitUPC"
                     )
 
-                return (None, "No Match")
+                return (None, None, "No Match")
 
             lookup_results = bu_df.apply(
                 lookup_master_uid,
@@ -260,8 +293,12 @@ if master_file and bu_file:
                 lambda x: x[0]
             )
 
-            bu_df["MATCH_SOURCE"] = lookup_results.apply(
+            bu_df["MASTER_PRODUCT_NAME"] = lookup_results.apply(
                 lambda x: x[1]
+            )
+
+            bu_df["MATCH_SOURCE"] = lookup_results.apply(
+                lambda x: x[2]
             )
 
             # =====================================================
@@ -341,6 +378,7 @@ if master_file and bu_file:
                 bu_unit_upc_col,
                 "BU_UID",
                 "MASTER_UID",
+                "MASTER_PRODUCT_NAME",
                 "MATCH_SOURCE"
             ]
 
