@@ -18,6 +18,14 @@ st.set_page_config(
 st.title("🔍 Retail UID Difference Checker")
 
 # =====================================================
+# STATIC BU COLUMN NAMES
+# =====================================================
+
+BU_PRODUCT_UPC_COLUMN = "ProductUPC"
+BU_UNIT_UPC_COLUMN = "UnitUPC"
+BU_UID_COLUMN = "ProductID"
+
+# =====================================================
 # HELPERS
 # =====================================================
 
@@ -89,7 +97,30 @@ if master_file and bu_file:
     st.success("Files Loaded")
 
     # =====================================================
-    # AUTO DETECT COLUMNS
+    # VALIDATE STATIC BU COLUMNS
+    # =====================================================
+
+    required_bu_columns = [
+        BU_PRODUCT_UPC_COLUMN,
+        BU_UNIT_UPC_COLUMN,
+        BU_UID_COLUMN
+    ]
+
+    missing_columns = [
+        col for col in required_bu_columns
+        if col not in bu_df.columns
+    ]
+
+    if missing_columns:
+
+        st.error(
+            f"Missing required BU columns: {', '.join(missing_columns)}"
+        )
+
+        st.stop()
+
+    # =====================================================
+    # AUTO DETECT MASTER COLUMNS
     # =====================================================
 
     master_upc_default = find_column(
@@ -112,26 +143,11 @@ if master_file and bu_file:
         ]
     )
 
-    bu_product_upc_default = find_column(
-        bu_df.columns,
-        ["productupc", "product upc"]
-    )
-
-    bu_unit_upc_default = find_column(
-        bu_df.columns,
-        ["unitupc", "unit upc"]
-    )
-
-    bu_uid_default = find_column(
-        bu_df.columns,
-        ["productid", "item no", "retail uid"]
-    )
-
     # =====================================================
-    # COLUMN MAPPING UI
+    # MASTER COLUMN MAPPING UI
     # =====================================================
 
-    st.header("Map Columns")
+    st.header("Map Master Columns")
 
     master_upc_col = st.selectbox(
         "Master UPC Column",
@@ -157,29 +173,10 @@ if master_file and bu_file:
         )
     )
 
-    bu_product_upc_col = st.selectbox(
-        "BU ProductUPC Column",
-        bu_df.columns,
-        index=list(bu_df.columns).index(
-            bu_product_upc_default
-        )
-    )
-
-    bu_unit_upc_col = st.selectbox(
-        "BU UnitUPC Column",
-        bu_df.columns,
-        index=list(bu_df.columns).index(
-            bu_unit_upc_default
-        )
-    )
-
-    bu_uid_col = st.selectbox(
-        "BU Retail UID Column",
-        bu_df.columns,
-        index=list(bu_df.columns).index(
-            bu_uid_default
-        )
-    )
+    # STATIC BU COLUMNS
+    bu_product_upc_col = BU_PRODUCT_UPC_COLUMN
+    bu_unit_upc_col = BU_UNIT_UPC_COLUMN
+    bu_uid_col = BU_UID_COLUMN
 
     # =====================================================
     # PROCESS BUTTON
