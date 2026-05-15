@@ -23,7 +23,7 @@ st.title("🔍 Retail UID Difference Checker")
 
 BU_PRODUCT_UPC_COLUMN = "ProductUPC"
 BU_UNIT_UPC_COLUMN = "UnitUPC"
-BU_UID_COLUMN = "ProductID"
+BU_UID_COLUMN = "ProductId"
 
 # =====================================================
 # HELPERS
